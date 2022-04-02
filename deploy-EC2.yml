@@ -1,7 +1,7 @@
-# Filename    : CDP-GG
-# Date        : 15Dec2021
-# Author      : Madhav Ravipati (m2ru@pge.com)
-# Description : CDP Golden Gate machine
+# Filename    : Golden
+# Date        : 02-Apr-2022
+# Author      : Avinash Pandey
+# Description : CDP Goldenmachine
 #
 # Usage:
 #   AWS console->CloudFormation->Create stack->upload this file
