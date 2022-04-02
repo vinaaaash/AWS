@@ -1,0 +1,480 @@
+#
+# Filename    : CDP-GG
+# Date        : 15Dec2021
+# Author      : Madhav Ravipati (m2ru@pge.com)
+# Description : CDP Golden Gate machine
+#
+# Usage:
+#   AWS console->CloudFormation->Create stack->upload this file
+#
+#
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Create CDP Golden Gate Stack'
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "EC2 Instnace details"
+        Parameters:
+          - pEC2Instance
+          - pKeyName
+          - pInstanceStorage
+      - Label:
+          default: "Network Information from parameter store (do not change)"
+        Parameters:
+          - pVPCID
+          - pPrivateSubnet1ID
+          - pPrivateSubnet1CIDR
+          - pPrivateSubnet2ID
+          - pPrivateSubnet2CIDR
+          - pPrivateSubnet3ID
+          - pPrivateSubnet3CIDR
+          - pSharedServicesVpcCidr
+
+      - Label:
+          default: "Application Information from parameter store (do not change)"
+        Parameters:
+          - pAppName
+          - pAppID
+          - pEnv
+          - pOrder
+          - pOrg
+          - pOwner
+          - pProjectName
+Parameters:
+  pInstanceType:
+    Type: String
+    Default: r6i.xlarge
+    AllowedValues:
+      - r6i.large
+      - r6i.xlarge
+      - t4.micro
+      - t4.small
+    Description: 'Enter t2.micro, m1.small, or m1.large. Default is t2.micro.'
+
+  pInstanceStorage:
+    Description: Enter the value for EBS storage
+    Type: Number
+    Default: '100'
+    MinValue: '100'
+    ConstraintDescription: must be more than 100 Gb.
+
+  pVolumeSize:
+    Description: Enter the value for volume storage
+    Type: Number
+    Default: '100'
+    MinValue: '100'
+    ConstraintDescription: must be more than 100 Gb.
+
+  pVPCID:
+    Description: 'Parameter store name /vpc/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/id
+
+  pPrivateSubnet1ID:
+    Description: 'Parameter store name /vpc/privatesubnet1/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet1/id
+
+  pPrivateSubnet1CIDR:
+    Description: 'Parameter store name /vpc/privatesubnet1/cidr'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet1/cidr
+
+  pPrivateSubnet2ID:
+    Description: 'Parameter store name /vpc/privatesubnet2/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet2/id
+
+  pPrivateSubnet2CIDR:
+    Description: 'Parameter store name /vpc/privatesubnet2/cidr'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet2/cidr
+
+  pPrivateSubnet3ID:
+    Description: 'Parameter store name /vpc/privatesubnet3/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet3/id
+
+  pPrivateSubnet3CIDR:
+    Description: 'Parameter store name /vpc/privatesubnet3/cidr'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet3/cidr
+
+  pRHELGoldenAMI:
+    Description: 'Parameter store name /ami/rhellinux/golden'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /ami/rhellinux/golden
+
+  pGoldenAMI:
+    Description: 'Parameter store name /ami/linux/golden'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /ami/linux/golden
+	
+  VolumeName:
+    Description: The name to be used for the EFS volume
+    Type: String
+    MinLength: '1'
+    Default: myEFSvolume
+	
+  MountPoint:
+    Description: The Linux mount point for the EFS volume
+    Type: String
+    MinLength: '1'
+    Default: myEFSvolume
+	
+  pAppID:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/appid'
+  pAppName:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/appname'
+  pEnv:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/environment'
+  pOrder:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/order'
+  pOrg:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/org'
+  pOwner:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/owner'
+  pProjectName:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/project'
+  pNotify:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/notify'
+  pRole:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/role'
+Resources:
+  rEC2InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref rAmiToolsEC2Role
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: b6d879bc-1be3-4dea-a8bd-d5372f19edf8
+  rAmiToolsEC2Role:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/CloudWatchAgentAdminPolicy'
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonElasticFileSystemClientFullAccess'
+      Path: /
+      Policies:
+        - PolicyName: kms-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'kms:*'
+                Resource: '*'
+  rSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Enable SSH, HTTP, HTTPS"
+      VpcId: !Ref pVPCID
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "172.16.0.0/12"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "172.16.0.0/12"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "172.16.0.0/12"
+  rSecurityGroup2:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Enable SSH, HTTP, HTTPS"
+      VpcId: !Ref pVPCID
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "172.16.0.0/12"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "172.16.0.0/12"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "172.16.0.0/12"
+  rEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: !Ref rEC2InstanceProfile
+      ImageId: !Ref pRHELGoldenAMI
+      InstanceType: !Ref pInstanceType
+      SecurityGroupIds:
+        - !Ref rSecurityGroup
+      SubnetId: !Ref pPrivateSubnet1ID
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize:
+              Ref: pInstanceStorage
+            VolumeType: gp2
+            DeleteOnTermination: 'true'
+            Encrypted: 'true'
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -x
+          yum update -y
+          yum install postgresql.x86_64 -y
+          yum install libnsl -y
+          yum install vim-enhanced -y
+          useradd -m -d /home/oracle oracle
+          mkdir -p /stvol1/app/product/oracle/binaries
+          chown -R oracle:oracle /stvol1/app/product/oracle/binaries
+          aws s3 cp s3://ccspdevdatastore/213000_fbo_ggs_Linux_x64_Oracle_services_shiphome.zip /stvol1/app/product/oracle/binaries/
+          aws s3 cp s3://ccspdevdatastore/213000_fbo_ggs_Linux_x64_Oracle_shiphome.zip /stvol1/app/product/oracle/binaries/
+          aws s3 cp s3://ccspdevdatastore/213000_ggs_Linux_x64_PostgreSQL_64bit.zip /stvol1/app/product/oracle/binaries/
+          aws s3 cp s3://ccspdevdatastore/213000_ggs_Linux_x64_PostgreSQL_services_shiphome.zip /stvol1/app/product/oracle/binaries/
+          aws s3 cp s3://ccspdevdatastore/oracle-instantclient-sqlplus-21.4.0.0.0-1.el8.x86_64.rpm /stvol1/app/product/oracle/binaries/
+          lsblk
+          file -s /dev/nvme1n1
+          mkfs -t ext4 /dev/nvme1n1
+          mkdir /stvol1
+          mount /dev/nvme1n1 /stvol1
+      Tags:
+        - Key: AppID
+          Value: !Ref pAppID
+        - Key: AppName
+          Value: !Ref pAppName
+        - Key: Environment
+          Value: !Ref pEnv
+        - Key: Notify
+          Value: !Ref pNotify
+        - Key: Order
+          Value: !Ref pOrder
+        - Key: Org
+          Value: !Ref pOrg
+        - Key: Owner
+          Value: !Ref pOwner
+        - Key: ProjectName
+          Value: !Ref pProjectName
+        - Key: Role
+          Value: !Ref pRole
+        - Key: "Name"
+          Value: cdp-gg1
+  rEC2Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: !Ref rEC2InstanceProfile
+      ImageId: !Ref pRHELGoldenAMI
+      InstanceType: !Ref pInstanceType
+      SecurityGroupIds:
+        - !Ref rSecurityGroup
+      SubnetId: !Ref pPrivateSubnet2ID
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize:
+              Ref: pInstanceStorage
+            VolumeType: gp2
+            DeleteOnTermination: 'true'
+            Encrypted: 'true'
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -x
+          yum update -y
+          yum install postgresql.x86_64 -y
+          yum install libnsl -y
+          yum install vim-enhanced -y
+          useradd -m -d /home/oracle oracle
+          mkdir -p /stvol1/app/product/oracle/binaries
+          chown -R oracle:oracle /stvol1/app/product/oracle/binaries
+          aws s3 cp s3://ccspdevdatastore/213000_fbo_ggs_Linux_x64_Oracle_services_shiphome.zip /stvol1/app/product/oracle/binaries/
+          aws s3 cp s3://ccspdevdatastore/213000_fbo_ggs_Linux_x64_Oracle_shiphome.zip /stvol1/app/product/oracle/binaries/
+          aws s3 cp s3://ccspdevdatastore/213000_ggs_Linux_x64_PostgreSQL_64bit.zip /stvol1/app/product/oracle/binaries/
+          aws s3 cp s3://ccspdevdatastore/213000_ggs_Linux_x64_PostgreSQL_services_shiphome.zip /stvol1/app/product/oracle/binaries/
+          aws s3 cp s3://ccspdevdatastore/oracle-instantclient-sqlplus-21.4.0.0.0-1.el8.x86_64.rpm /stvol1/app/product/oracle/binaries/
+          lsblk
+          file -s /dev/nvme1n1
+          mkfs -t ext4 /dev/nvme1n1
+          mkdir /stvol1
+          mount /dev/nvme1n1 /stvol1
+      Tags:
+        - Key: AppID
+          Value: !Ref pAppID
+        - Key: AppName
+          Value: !Ref pAppName
+        - Key: Environment
+          Value: !Ref pEnv
+        - Key: Notify
+          Value: !Ref pNotify
+        - Key: Order
+          Value: !Ref pOrder
+        - Key: Org
+          Value: !Ref pOrg
+        - Key: Owner
+          Value: !Ref pOwner
+        - Key: ProjectName
+          Value: !Ref pProjectName
+        - Key: Role
+          Value: !Ref pRole
+        - Key: "Name"
+          Value: cdp-gg2
+  rNewVolume:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      Size: !Ref pVolumeSize
+      Encrypted: true
+      VolumeType: gp2
+      AvailabilityZone: !GetAtt rEC2Instance.AvailabilityZone
+      Tags:
+        - Key: AppID
+          Value: !Ref pAppID
+        - Key: AppName
+          Value: !Ref pAppName
+        - Key: Environment
+          Value: !Ref pEnv
+        - Key: Notify
+          Value: !Ref pNotify
+        - Key: Order
+          Value: !Ref pOrder
+        - Key: Org
+          Value: !Ref pOrg
+        - Key: Owner
+          Value: !Ref pOwner
+        - Key: ProjectName
+          Value: !Ref pProjectName
+        - Key: Role
+          Value: !Ref pRole
+        - Key: Name
+          Value: !Sub '${pProjectName}-${pEnv}'
+  rNewVolume2:
+    Type: 'AWS::EC2::Volume'
+    Properties:
+      Size: !Ref pVolumeSize
+      Encrypted: true
+      VolumeType: gp2
+      AvailabilityZone: !GetAtt rEC2Instance.AvailabilityZone
+      Tags:
+        - Key: AppID
+          Value: !Ref pAppID
+        - Key: AppName
+          Value: !Ref pAppName
+        - Key: Environment
+          Value: !Ref pEnv
+        - Key: Notify
+          Value: !Ref pNotify
+        - Key: Order
+          Value: !Ref pOrder
+        - Key: Org
+          Value: !Ref pOrg
+        - Key: Owner
+          Value: !Ref pOwner
+        - Key: ProjectName
+          Value: !Ref pProjectName
+        - Key: Role
+          Value: !Ref pRole
+        - Key: Name
+          Value: !Sub '${pProjectName}-${pEnv}'
+  rMountPoint:
+    Type: 'AWS::EC2::VolumeAttachment'
+    Properties:
+      InstanceId: !Ref rEC2Instance
+      VolumeId: !Ref rNewVolume
+      Device: /dev/sdh
+  rMountPoint2:
+    Type: 'AWS::EC2::VolumeAttachment'
+    Properties:
+      InstanceId: !Ref rEC2Instance2
+      VolumeId: !Ref rNewVolume2
+      Device: /dev/sdh
+  MountTargetSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref pVPCID
+      GroupDescription: Security group for mount target
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 2049
+        ToPort: 2049
+        CidrIp: 0.0.0.0/0
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose
+      FileSystemTags:
+      - Key: Name
+        Value: !Ref VolumeName
+  MountTarget:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref pPrivateSubnet1ID
+      SecurityGroups: !Ref MountTargetSecurityGroup
+

@@ -1,0 +1,386 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "AWS CloudFormation Template for Building Oracle RDS with Temporary EC2 Instance to Run Post Scripts on RDS. ***WARNING*** you will be billed for the AWS resources used if you create a stack from this template."
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Network Configuration"
+        Parameters:
+          - pVPCName
+      -
+        Label:
+          default: "Amazon EC2 Configuration"
+        Parameters:
+          - pEC2SubNet
+          - pEC2AMIid
+          - pEC2InstanceType
+          - pKeyName
+      -
+        Label:
+          default: "RDS Oracle Configuration"
+        Parameters:
+          - pMultiAZDatabase
+          - pRDSSubNet
+          - pDBClass
+          - pDBName
+          - pDBEngineType
+          - pEngineVersion
+          - pDBAllocatedStorage
+          - pListenerPort
+          - pBackupRetention
+          - pLicenseType
+          - pDBUsername
+          - pDBPassword
+    ParameterLabels:
+      pVPCName:
+        default: "Which VPC should this RDS oracle and EC2 instance be deployed to?"
+      pEC2SubNet:
+        default: "What is the Existing Subnet for EC2?"
+      pEC2InstanceType:
+        default: "What is the EC2 instance type?"
+      pKeyName:
+        default: "Name of an existing EC2 KeyPair to enable SSH access to the EC2 instance?"
+      pEC2AMIid:
+        default: "What is the Existing EC2 AMI ID?"
+      pMultiAZDatabase:
+        default: "Is it a Multi-AZ deployment?"
+      pRDSSubNet:
+        default: "What is the Existing Subnet for RDS? (Select atleast 2)"
+      pDBName:
+        default: "What is the Oracle database name?"
+      pDBUsername:
+        default: "What is the Oracle database master username?"
+      pDBPassword: 
+        default: "What is the Oracle database master user's password?"
+      pDBClass:
+        default: "What is the Oracle database Instance Class?"
+      pDBEngineType:
+        default: "What is the Oracle database Engine Type?"
+      pEngineVersion:
+        default: "What is the Oracle database Engine Version?"
+      pDBAllocatedStorage:
+        default: "What is the Allocated storage size (GB)?"
+      pListenerPort:
+        default: "What is the Listener Port?"
+      pBackupRetention:
+        default: "What is the Backup Retention Period?"
+      pLicenseType:
+        default: "What is the Oracle database Licence Type?"
+Parameters:
+  pVPCName:
+    Type: AWS::EC2::VPC::Id
+  pEC2SubNet:
+    Type: 'AWS::EC2::Subnet::Id'
+  pEC2InstanceType:
+    Default: t2.micro
+    Type: String
+    AllowedValues:
+      - t2.micro
+      - m5.large
+      - m5.xlarge
+      - m5.xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+      - r5.large
+      - r5.xlarge
+      - r5.xlarge
+      - r5.2xlarge
+      - r5.4xlarge
+    ConstraintDescription: Select a valid EC2 instance type.
+  pKeyName:
+    Type: 'AWS::EC2::KeyPair::KeyName'
+  pEC2AMIid:
+    Type: 'AWS::EC2::Image::Id'
+  pMultiAZDatabase:
+    Default: 'false'
+    Description: Create a multi-AZ Amazon RDS Oracle database instance
+    Type: String
+    AllowedValues:
+      - 'true'
+      - 'false'
+    ConstraintDescription: MultiAZDatabase must be either true or false.
+  pRDSSubNet:
+    Type: 'List<AWS::EC2::Subnet::Id>'
+  pDBName:
+    Default: oradb
+    Type: String
+    MinLength: '1'
+    MaxLength: '8'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: DBName must begin with a letter,contain only alphanumeric and eight characters length.
+  pDBUsername:
+    NoEcho: 'true'
+    Default: oraadmin
+    Description: The Oracle database admin account username
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: DBUsername must begin with a letter and contain only alphanumeric characters.
+  pDBPassword:
+    NoEcho: 'true'
+    Description: The Oracle database admin account password
+    Type: String
+    MinLength: '8'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: DBPassword must contain only alphanumeric characters.
+  pDBClass:
+    Default: db.m5.large
+    Description: Database instance class
+    Type: String
+    AllowedValues:
+      - db.m5.large
+      - db.m5.xlarge
+      - db.m5.xlarge
+      - db.m5.2xlarge
+      - db.m5.4xlarge
+    ConstraintDescription: Select a valid database instance type.
+  pDBEngineType:
+    Default: oracle-ee
+    Description: Database Engine Type
+    Type: String
+    AllowedValues:
+      - oracle-ee
+      - oracle-se
+      - oracle-se1
+      - oracle-se2
+    ConstraintDescription: Select a valid Database Engine Type.
+  pEngineVersion:
+    Default: 19.0.0.0.ru-2020-07.rur-2020-07.r1
+    Description: Database Engine Version
+    Type: String
+    AllowedValues:
+      - 19.0.0.0.ru-2020-07.rur-2020-07.r1
+      - 19.0.0.0.ru-2020-04.rur-2020-04.r1
+      - 19.0.0.0.ru-2020-01.rur-2020-01.r1
+      - 19.0.0.0.ru-2019-10.rur-2019-10.r1
+      - 19.0.0.0.ru-2019-07.rur-2019-07.r1
+      - 18.0.0.0.ru-2020-07.rur-2020-07.r1
+      - 18.0.0.0.ru-2020-04.rur-2020-04.r1
+      - 18.0.0.0.ru-2020-01.rur-2020-01.r1
+      - 18.0.0.0.ru-2019-10.rur-2019-10.r1
+      - 18.0.0.0.ru-2019-07.rur-2019-07.r1
+      - 12.2.0.1.ru-2020-07.rur-2020-07.r1
+      - 12.2.0.1.ru-2020-04.rur-2020-04.r1
+      - 12.2.0.1.ru-2020-01.rur-2020-01.r1
+      - 12.2.0.1.ru-2019-10.rur-2019-10.r1
+      - 12.2.0.1.ru-2019-07.rur-2019-07.r1
+      - 12.2.0.1.ru-2019-04.rur-2019-04.r1
+      - 12.2.0.1.ru-2019-01.rur-2019-01.r1
+      - 12.2.0.1.ru-2018-10.rur-2018-10.r1
+    ConstraintDescription: Select a valid Database Engine Version.
+  pDBAllocatedStorage:
+    Default: '10'
+    Description: The size of the database (GB)
+    Type: Number
+    MinValue: '10'
+    MaxValue: '65536'
+  pListenerPort:
+    Default: '1521'
+    Description: The Oracle database listener port
+    Type: Number
+    MinValue: '1150'
+    MaxValue: '65536'
+    ConstraintDescription: Listener Port is recommended between 1150 and 65536.
+  pBackupRetention:
+    Default: '35'
+    Description: The number of days Oracle backups are retained
+    Type: Number
+    MinValue: '0'
+    MaxValue: '35'
+    ConstraintDescription: Recommended backup retention period.  Setting to 0 disables backups.
+  pLicenseType:
+    Default: bring-your-own-license
+    Description: The license type for this RDS
+    Type: String
+    AllowedValues:
+      - bring-your-own-license
+      - license-included
+    ConstraintDescription: Licence Type
+Resources:
+  rSGEC2:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Security group for EC2 which will execute the post database creation steps
+      GroupName: ec2_sg
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: '-1'
+      VpcId: !Ref pVPCName
+  rSGDB:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Security group for RDS Oracle Instance to allow connection from EC2
+      GroupName: rds_sg
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic by default
+          IpProtocol: '-1'
+      VpcId: !Ref pVPCName
+  rSGDBInbound:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      IpProtocol: tcp
+      Description: 'from rSGEC2 security group'
+      FromPort: !Ref pListenerPort
+      GroupId: !GetAtt
+        - rSGDB
+        - GroupId
+      SourceSecurityGroupId: !GetAtt
+        - rSGEC2
+        - GroupId
+      ToPort: !Ref pListenerPort
+  rDBSubnet:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS database
+      SubnetIds: !Ref pRDSSubNet
+  rDBSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: !Sub 'db-secrets/${pDBName}'
+      Description: "User provided password RDS master account"
+      SecretString: !Sub '{"username":"${pDBUsername}","password":"${pDBPassword}"}'
+  rDBSecretattachment:
+    Type: 'AWS::SecretsManager::SecretTargetAttachment'
+    Properties:
+      SecretId: !Ref rDBSecret
+      TargetId: !Ref rMyDB
+      TargetType: 'AWS::RDS::DBInstance'
+  rMyDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBName: !Ref pDBName
+      AllocatedStorage: !Ref pDBAllocatedStorage
+      DBInstanceClass: !Ref pDBClass
+      Engine: !Ref pDBEngineType
+      EngineVersion: !Ref pEngineVersion
+      DBInstanceIdentifier: !Ref pDBName
+      DBSubnetGroupName: !Ref rDBSubnet
+      MasterUsername: !Join 
+        - ''
+        - - '{{resolve:secretsmanager:'
+          - !Ref rDBSecret
+          - ':SecretString:username::}}'
+      MasterUserPassword: !Join 
+        - ''
+        - - '{{resolve:secretsmanager:'
+          - !Ref rDBSecret
+          - ':SecretString:password::}}'
+      MultiAZ: !Ref pMultiAZDatabase
+      Port: !Ref pListenerPort
+      BackupRetentionPeriod: !Ref pBackupRetention
+      LicenseModel: !Ref pLicenseType
+      VPCSecurityGroups:
+                    - !GetAtt
+                      - rSGDB
+                      - GroupId
+  rEC2:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceInitiatedShutdownBehavior: stop
+      ImageId: !Ref pEC2AMIid
+      InstanceType: !Ref pEC2InstanceType
+      KeyName:
+        Ref: pKeyName
+      NetworkInterfaces:
+        - Description: interface-0
+          DeviceIndex: '0'
+          GroupSet:
+                - !GetAtt
+                  - rSGEC2
+                  - GroupId
+          SubnetId: !Ref pEC2SubNet
+      UserData: !Base64
+        'Fn::Join':
+          - ''
+          - - |
+              #!/bin/bash -xe
+            - |
+              yum update -y
+            - |
+              cd /home/ec2-user
+            - |
+
+            - >
+              wget
+              https://raw.githubusercontent.com/aws-samples/aws-database-migration-samples/master/oracle/sampledb/v1/user/create_dms_user.sql
+            - |+
+              cd /etc/yum.repos.d
+            - |
+              rm -f public-yum-ol7.repo
+            - |
+              wget https://yum.oracle.com/public-yum-ol7.repo
+            - >
+              sed -i 's/gpgcheck=1/gpgcheck=0/g'
+              /etc/yum.repos.d/public-yum-ol7.repo
+            - |
+              yum install -y yum-utils
+            - |
+              yum-config-manager --enable ol7_oracle_instantclient
+            - >
+              yum install -y oracle-instantclient18.3-basic
+              oracle-instantclient18.3-sqlplus
+            - >-
+              echo export LD_LIBRARY_PATH=/usr/lib/oracle/18.3/client64/lib >>
+              /etc/environment
+            - |+
+
+            - >-
+              echo export PATH=$PATH:/usr/lib/oracle/18.3/client64/bin >>
+              /etc/environment
+            - |+
+
+            - |
+              export LD_LIBRARY_PATH=/usr/lib/oracle/18.3/client64/lib
+            - |
+              export PATH=$PATH:/usr/lib/oracle/18.3/client64/bin
+            - |
+              source /etc/environment
+            - >
+              cd /home/ec2-user
+            - export ENDPOINT=
+            - !GetAtt
+              - rMyDB
+              - Endpoint.Address
+            - |+
+
+            - export DBNAME=
+            - !Ref pDBName
+            - |+
+
+            - export PORT=
+            - !Ref pListenerPort
+            - |+
+
+            - export USERNAME=
+            - !Ref pDBUsername
+            - |+
+
+            - export PASSWORD=
+            - !Ref pDBPassword
+            - |+
+
+            - >-
+              echo "nohup sqlplus ${USERNAME}/${PASSWORD}@${ENDPOINT}:${PORT}/${DBNAME} <
+              /home/ec2-user/create_dms_user.sql >
+              /home/ec2-user/create_dms_user.out &" >
+              /home/ec2-user/post-db-script.sh
+            - |+
+
+            - |
+              cd /home/ec2-user
+            - |
+              chown -R ec2-user:ec2-user /home/ec2-user/*
+            - |
+              sh /home/ec2-user/post-db-script.sh
+Outputs:
+  OracleInstanceEndpoint:
+    Description: RDS Instance Endpoint
+    Value:
+      'Fn::GetAtt':
+        - rMyDB
+        - Endpoint.Address

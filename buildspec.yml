@@ -1,0 +1,73 @@
+version: 0.2
+env:
+  exported-variables:
+    - AWS_S3_STAGING_BUCKET
+    - ARTIFACTORY_HOST
+    - ARTIFACTORY_REPO_KEY_PATH
+    - ARTIFACT_NAME
+    - ARTIFACT_VERSION
+    - ARTIFACT_TYPE
+    - ARTIFACTORY_USER
+    - ARTIFACTORY_TOKEN
+  variables:
+    ARTIFACTORY_AUTH_PREFIX: 'Authorization:'
+phases:
+  install:
+    commands:
+      - echo "Entered the install phase..."
+      - yum --skip-broken -y update
+      - echo "Making sure java, maven and curl are installed"
+      - yum install -y java
+      - yum install -y maven
+      - yum install -y curl
+      - yum install -y jq
+  pre_build:
+    commands:
+      - echo "Entered the pre_build phase..."
+      - echo "Making sure Java is installed"
+      - echo `java --version`
+      - echo "Making sure Maven is installed"
+      - echo `mvn --version`
+      - echo "Making sure Curl is installed"
+      - echo `curl --version`
+      - echo "Making sure JQ tool is installed"
+      - echo `jq --version`
+  build:
+    commands:
+      - export ARTIFACT_FULL_NAME="${ARTIFACT_NAME}-${ARTIFACT_VERSION}-SNAPSHOT.${ARTIFACT_TYPE}"
+      - echo "CODEBUILD_INITIATOR - ${CODEBUILD_INITIATOR}"
+      - echo "Entered the build phase execution..."
+      - echo Build started on `date`
+      - echo "Change directory to ${CODEBUILD_SRC_DIR}/ec2only/java/app"
+      - cd ${CODEBUILD_SRC_DIR}/ec2only/java/app
+      - echo `pwd`
+      - mvn -s ./settings.xml clean test -Dversion="${ARTIFACT_VERSION}-SNAPSHOT"
+      - mvn -s ./settings.xml package -Dmaven.wagon.http.ssl.insecure=true -DuserId="${ARTIFACTORY_USER}" -DuserToken="${ARTIFACTORY_TOKEN}" -Dversion="${ARTIFACT_VERSION}-SNAPSHOT" -Dboot
+      - echo "Expand contents of the target directory."
+      - ls -ltr ${CODEBUILD_SRC_DIR}/ec2only/java/app/target
+      - echo "$ARTIFACTORY_HOST - $ARTIFACTORY_HOST"
+      - echo "ARTIFACTORY_REPO_KEY_PATH - $ARTIFACTORY_REPO_KEY_PATH"
+      - echo "ARTIFACT_FULL_NAME - $ARTIFACT_FULL_NAME"
+      - echo "ARTIFACTORY_AUTH_PREFIX - $ARTIFACTORY_AUTH_PREFIX"
+      - echo "Deploy Artifact $ARTIFACT_FULL_NAME to Artifactory Host $ARTIFACTORY_HOST with REPO-KEY-PATH $ARTIFACTORY_REPO_KEY_PATH"
+      - curl -H "${ARTIFACTORY_AUTH_PREFIX} Bearer ${ARTIFACTORY_TOKEN}" -X PUT "${ARTIFACTORY_HOST}/${ARTIFACTORY_REPO_KEY_PATH}/${ARTIFACT_FULL_NAME}" -T ./target/${ARTIFACT_FULL_NAME}
+      - echo "Retrieve artifact $ARTIFACT_FULL_NAME resides in REPO-KEY-PATH $ARTIFACTORY_REPO_KEY_PATH on Artifactory Host URI $ARTIFACTORY_HOST"
+      - curl -H "${ARTIFACTORY_AUTH_PREFIX} Bearer ${ARTIFACTORY_TOKEN}" -X GET "${ARTIFACTORY_HOST}/$ARTIFACTORY_REPO_KEY_PATH/$ARTIFACT_FULL_NAME" --output $ARTIFACT_NAME.${ARTIFACT_TYPE}
+      - ls -l | grep "$ARTIFACT_NAME.${ARTIFACT_TYPE}"
+  post_build:
+    commands:
+      - echo 'Now in the post_build phase...'
+      - echo Build completed on `date`
+      - echo "Current Working Directory is..."
+      - pwd
+artifacts:
+  files:
+    - appspec.yml
+    #- ec2only/java/app/pipeline/app/pipeline/appspec.yml
+    - ec2only/java/app/pipeline/scripts/check_directory_ownership.sh
+    - ec2only/java/app/pipeline/scripts/check_for_jar_executable_ownership.sh
+    - ec2only/java/app/pipeline/scripts/start_server.sh
+    - ec2only/java/app/pipeline/scripts/stop_server.sh
+    #- ec2only/java/app/target/spring-boot-lambda-1.0.0-SNAPSHOT.jar
+    - ec2only/java/app/${ARTIFACT_NAME}.${ARTIFACT_TYPE}
+}

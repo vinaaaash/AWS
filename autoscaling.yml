@@ -1,0 +1,408 @@
+# Filename    : CDP-GG
+# Date        : 15Dec2021
+# Author      : Madhav Ravipati (m2ru@pge.com)
+# Description : Auto Scaling Group With EFS Auto Mount
+#
+# Usage:
+#   AWS console->CloudFormation->Create stack->upload this file
+#
+#
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Auto Scaling Group With EFS Auto Mount'
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "EC2 Instnace details"
+        Parameters:
+          - pEC2Instance
+          - pKeyName
+          - pInstanceStorage
+      - Label:
+          default: "Network Information from parameter store (do not change)"
+        Parameters:
+          - pVPCID
+          - pPrivateSubnet1ID
+          - pPrivateSubnet1CIDR
+          - pPrivateSubnet2ID
+          - pPrivateSubnet2CIDR
+          - pPrivateSubnet3ID
+          - pPrivateSubnet3CIDR
+          - pSharedServicesVpcCidr
+
+      - Label:
+          default: "Application Information from parameter store (do not change)"
+        Parameters:
+          - pAppName
+          - pAppID
+          - pEnv
+          - pOrder
+          - pOrg
+          - pOwner
+          - pProjectName
+Parameters:
+  pInstanceType:
+    Type: String
+    Default: r6i.xlarge
+    AllowedValues:
+      - r6i.large
+      - r6i.xlarge
+      - t4.micro
+      - t4.small
+    Description: 'Enter t2.micro, m1.small, or m1.large. Default is t2.micro.'
+
+  pInstanceStorage:
+    Description: Enter the value for EBS storage
+    Type: Number
+    Default: '100'
+    MinValue: '100'
+    ConstraintDescription: must be more than 100 Gb.
+
+  pVolumeSize:
+    Description: Enter the value for volume storage
+    Type: Number
+    Default: '100'
+    MinValue: '100'
+    ConstraintDescription: must be more than 100 Gb.
+
+  pVPCID:
+    Description: 'Parameter store name /vpc/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/id
+
+  pPrivateSubnet1ID:
+    Description: 'Parameter store name /vpc/privatesubnet1/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet1/id
+
+  pPrivateSubnet1CIDR:
+    Description: 'Parameter store name /vpc/privatesubnet1/cidr'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet1/cidr
+
+  pPrivateSubnet2ID:
+    Description: 'Parameter store name /vpc/privatesubnet2/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet2/id
+
+  pPrivateSubnet2CIDR:
+    Description: 'Parameter store name /vpc/privatesubnet2/cidr'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet2/cidr
+
+  pPrivateSubnet3ID:
+    Description: 'Parameter store name /vpc/privatesubnet3/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet3/id
+
+  pPrivateSubnet3CIDR:
+    Description: 'Parameter store name /vpc/privatesubnet3/cidr'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet3/cidr
+
+  pRHELGoldenAMI:
+    Description: 'Parameter store name /ami/rhellinux/golden'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /ami/rhellinux/golden
+
+  pCustomAMI:
+    Description: the name of the AMI
+    Type: String
+    Default: ami-01404b574269cc5e1
+    
+  pS3artifact:
+    Description: Location for S3 artifacts
+    Type: String
+    MinLength: '1'
+    Default: ccspgg-ec2-artifacts/dev2
+
+  pSourceTNSAlias:
+    Description: Name of the Source TNS alias
+    Type: String
+    MinLength: '1'
+    Default: CCB1D
+
+  pTargetDSN:
+    Description: Name of the Target DSN
+    Type: String
+    MinLength: '1'
+    Default: GG_Postgres_Dev2
+
+  pExtractName:
+    Description: Name of the Extract
+    Type: String
+    MinLength: '1'
+    Default: E2CDP
+
+  pReplicatName:
+    Description: Name of the Replicat
+    Type: String
+    MinLength: '1'
+    Default: R2CDP
+
+  pExtractTrailPrefix:
+    Description: Name of the Extract trail prefix
+    Type: String
+    MinLength: '1'
+    Default: e2
+
+  pEnv:
+    Description: Name of the GG environment name
+    Type: String
+    MinLength: '1'
+    Default: dev2
+    
+  pAppID:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/appid'
+  pAppName:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/appname'
+  pEnv:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/environment'
+  pOrder:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/order'
+  pOrg:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/org'
+  pOwner:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/owner'
+  pProjectName:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/project'
+  pNotify:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/notify'
+  pRole:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/role'
+Resources:
+  rEC2InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref rAmiToolsEC2Role
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: b6d879bc-1be3-4dea-a8bd-d5372f19edf8
+  rAmiToolsEC2Role:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/CloudWatchAgentAdminPolicy'
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonElasticFileSystemClientFullAccess'
+        - 'arn:aws:iam::aws:policy/SecretsManagerReadWrite'
+        - 'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess'
+      Path: /
+      Policies:
+        - PolicyName: kms-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'kms:*'
+                Resource: '*'
+  rSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Enable SSH, HTTP, HTTPS"
+      VpcId: !Ref pVPCID
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "172.16.0.0/12"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "172.16.0.0/12"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "172.16.0.0/12"
+  ALBTargetGroup:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+        HealthCheckIntervalSeconds: 30
+        HealthCheckPath: "/"
+        Port: 9001
+        Protocol: "HTTP"
+        HealthCheckPort: "traffic-port"
+        HealthCheckProtocol: "HTTP"
+        HealthCheckTimeoutSeconds: 5
+        UnhealthyThresholdCount: 2
+        TargetType: "instance"
+        Matcher: 
+            HttpCode: "200"
+        HealthyThresholdCount: 5
+        VpcId: !Ref pVPCID
+        Name: "testing-alb-0330"
+        HealthCheckEnabled: true
+        TargetGroupAttributes: 
+          - 
+            Key: "stickiness.enabled"
+            Value: "false"
+          - 
+            Key: "deregistration_delay.timeout_seconds"
+            Value: "300"
+          - 
+            Key: "stickiness.type"
+            Value: "lb_cookie"
+          - 
+            Key: "stickiness.lb_cookie.duration_seconds"
+            Value: "86400"
+          - 
+            Key: "slow_start.duration_seconds"
+            Value: "0"
+          - 
+            Key: "load_balancing.algorithm.type"
+            Value: "round_robin"  
+  myASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: '1'
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      LaunchTemplate:
+        LaunchTemplateId: lt-0b7493be14b0d878a
+        Version: 9
+      VPCZoneIdentifier: 
+        - !Ref pPrivateSubnet1ID
+      TargetGroupARNs:
+        - Ref: ALBTargetGroup
+  ALBSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+        GroupDescription: "security group for ALB"
+        GroupName: "testing-alb-0330"
+        VpcId: !Ref pVPCID
+        SecurityGroupIngress: 
+          - IpProtocol: "tcp"
+            FromPort: "443"
+            ToPort: "443"
+            CidrIp: "10.0.0.0/8"
+          - IpProtocol: "tcp"
+            FromPort: "443"
+            ToPort: "443"
+            CidrIp: "192.168.0.0/16"
+          - IpProtocol: "tcp"
+            FromPort: "443"
+            ToPort: "443"
+            CidrIp: "172.16.0.0/12"
+  ApplicationLoadBalancer:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+        Name: "testing-alb-0330"
+        Scheme: "internal"
+        Type: "application"
+        Subnets: 
+          - !Ref pPrivateSubnet1ID
+          - !Ref pPrivateSubnet2ID
+        SecurityGroups: 
+          - !Ref ALBSecurityGroup
+        IpAddressType: "ipv4"
+        LoadBalancerAttributes: 
+          - 
+            Key: "access_logs.s3.enabled"
+            Value: "false"
+          - 
+            Key: "idle_timeout.timeout_seconds"
+            Value: "60"
+          - 
+            Key: "deletion_protection.enabled"
+            Value: "false"
+          - 
+            Key: "routing.http2.enabled"
+            Value: "true"
+          - 
+            Key: "routing.http.drop_invalid_header_fields.enabled"
+            Value: "false"
+  ALBListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 443
+      Protocol: "HTTPS"
+      SslPolicy: "ELBSecurityPolicy-TLS-1-2-Ext-2018-06"
+      Certificates: 
+        - 
+          CertificateArn: arn:aws:acm:us-west-2:708921516569:certificate/01294232-99b7-4ef7-8596-fe68a319fe64
+                
+      DefaultActions: 
+        - 
+          Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: 503
+            ContentType: "text/plain"
+            MessageBody: "Unknown Service"
+  CodeDeployInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - Ref: CodeDeployRole
+  CodeDeployPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName:
+        Fn::Sub: codedeploy-policy-${AWS::StackName}
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action:
+          - "*"
+          Resource: "*"
+      Roles:
+      - Ref: CodeDeployRole
+  CodeDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"}

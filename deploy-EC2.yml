@@ -1,0 +1,526 @@
+# Filename    : CDP-GG
+# Date        : 15Dec2021
+# Author      : Madhav Ravipati (m2ru@pge.com)
+# Description : CDP Golden Gate machine
+#
+# Usage:
+#   AWS console->CloudFormation->Create stack->upload this file
+#
+#
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Create CDP Golden Gate Stack'
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "EC2 Instnace details"
+        Parameters:
+          - pEC2Instance
+          - pKeyName
+          - pInstanceStorage
+      - Label:
+          default: "Network Information from parameter store (do not change)"
+        Parameters:
+          - pVPCID
+          - pPrivateSubnet1ID
+          - pPrivateSubnet1CIDR
+          - pPrivateSubnet2ID
+          - pPrivateSubnet2CIDR
+          - pPrivateSubnet3ID
+          - pPrivateSubnet3CIDR
+          - pSharedServicesVpcCidr
+
+      - Label:
+          default: "Application Information from parameter store (do not change)"
+        Parameters:
+          - pAppName
+          - pAppID
+          - pEnv
+          - pOrder
+          - pOrg
+          - pOwner
+          - pProjectName
+Parameters:
+  pInstanceType:
+    Type: String
+    Default: r6i.xlarge
+    AllowedValues:
+      - r6i.large
+      - r6i.xlarge
+      - t4.micro
+      - t4.small
+    Description: 'Enter t2.micro, m1.small, or m1.large. Default is t2.micro.'
+    
+  pInstanceStorage:
+    Description: Enter the value for EBS storage
+    Type: Number
+    Default: '100'
+    MinValue: '100'
+    ConstraintDescription: must be more than 100 Gb.
+
+  pVPCID:
+    Description: 'Parameter store name /vpc/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/id
+
+  pPrivateSubnet1ID:
+    Description: 'Parameter store name /vpc/privatesubnet1/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet1/id
+
+  pPrivateSubnet1CIDR:
+    Description: 'Parameter store name /vpc/privatesubnet1/cidr'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet1/cidr
+
+  pPrivateSubnet2ID:
+    Description: 'Parameter store name /vpc/privatesubnet2/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet2/id
+
+  pPrivateSubnet2CIDR:
+    Description: 'Parameter store name /vpc/privatesubnet2/cidr'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet2/cidr
+
+  pPrivateSubnet3ID:
+    Description: 'Parameter store name /vpc/privatesubnet3/id'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet3/id
+
+  pPrivateSubnet3CIDR:
+    Description: 'Parameter store name /vpc/privatesubnet3/cidr'
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: /vpc/privatesubnet3/cidr
+
+  pGGGoldenAMI:
+    Description: the name of the AMI
+    Type: String
+    Default: ami-01404b574269cc5e1
+
+  pVolumeName:
+    Description: The name to be used for the EFS volume
+    Type: String
+    MinLength: '1'
+    Default: devnew0328
+    
+  MountPoint:
+    Description: The Linux mount point for the EFS volume
+    Type: String
+    MinLength: '1'
+    Default: devnew0328
+
+  pS3artifact:
+    Description: Location for S3 artifacts
+    Type: String
+    MinLength: '1'
+    Default: ccspgg-ec2-artifacts/dev2
+
+  pMountpointName:
+    Description: Name of the Mount Point in the Ec2 machine
+    Type: String
+    MinLength: '1'
+    Default: devnew0328
+
+  pSourceTNSAlias:
+    Description: Name of the Source TNS alias
+    Type: String
+    MinLength: '1'
+    Default: CCB1D
+
+  pTargetDSN:
+    Description: Name of the Target DSN
+    Type: String
+    MinLength: '1'
+    Default: GG_Postgres_Dev2
+
+  pExtractName:
+    Description: Name of the Extract
+    Type: String
+    MinLength: '1'
+    Default: E2CDP
+
+  pReplicatName:
+    Description: Name of the Replicat
+    Type: String
+    MinLength: '1'
+    Default: R2CDP
+
+  pExtractTrailPrefix:
+    Description: Name of the Extract trail prefix
+    Type: String
+    MinLength: '1'
+    Default: e2
+
+  pEnv:
+    Description: Name of the GG environment name
+    Type: String
+    MinLength: '1'
+    Default: dev2
+
+  pAppID:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/appid'
+  pAppName:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/appname'
+  pOrder:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/order'
+  pOrg:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/org'
+  pOwner:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/owner'
+  pProjectName:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/project'
+  pNotify:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/notify'
+  pRole:
+    Type: 'AWS::SSM::Parameter::Value<String>'
+    Default: '/general/role'
+
+Resources:
+  rEC2InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref rAmiToolsEC2Role
+    Metadata:
+      'AWS::CloudFormation::Designer':
+        id: b6d879bc-1be3-4dea-a8bd-d5372f19edf8
+  rAmiToolsEC2Role:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/CloudWatchAgentAdminPolicy'
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonElasticFileSystemClientFullAccess'
+        - 'arn:aws:iam::aws:policy/SecretsManagerReadWrite'
+      Path: /
+      Policies:
+        - PolicyName: kms-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 'kms:*'
+                Resource: '*'
+  rSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Enable SSH, HTTP, HTTPS"
+      VpcId: !Ref pVPCID
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: "172.16.0.0/12"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "7809"
+          ToPort: "7820"
+          CidrIp: "172.16.0.0/12"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "9000"
+          ToPort: "9007"
+          CidrIp: "172.16.0.0/12"
+        - IpProtocol: "tcp"
+          FromPort: "1521"
+          ToPort: "1521"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "1521"
+          ToPort: "1521"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "1521"
+          ToPort: "1521"
+          CidrIp: "172.16.0.0/12"
+        - IpProtocol: "tcp"
+          FromPort: "5432"
+          ToPort: "5432"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "5432"
+          ToPort: "5432"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "5432"
+          ToPort: "5432"
+          CidrIp: "172.16.0.0/12"                      
+        - IpProtocol: "tcp"
+          FromPort: "10000"
+          ToPort: "10007"
+          CidrIp: "10.0.0.0/8"
+        - IpProtocol: "tcp"
+          FromPort: "10000"
+          ToPort: "10007"
+          CidrIp: "192.168.0.0/16"
+        - IpProtocol: "tcp"
+          FromPort: "10000"
+          ToPort: "10007"
+          CidrIp: "172.16.0.0/12"
+  rEC2Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: MountTarget1    
+    Properties:
+      IamInstanceProfile: !Ref rEC2InstanceProfile
+      ImageId: !Ref pGGGoldenAMI
+      InstanceType: !Ref pInstanceType
+      SecurityGroupIds:
+        - !Ref rSecurityGroup
+      SubnetId: !Ref pPrivateSubnet1ID
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize:
+              Ref: pInstanceStorage
+            VolumeType: gp3
+            DeleteOnTermination: 'true'
+            Encrypted: 'true'
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -x
+          yum install jq -y
+          mkdir /${pMountpointName}
+          mount -t efs -o tls ${FileSystem}:/ /${pMountpointName}
+          echo "${FileSystem}:/ /${pMountpointName} efs _netdev,noresvport,tls,iam 0 0" >> /etc/fstab
+          echo "***Create Environment Variable files for Service Manager startup***"
+          su - oracle -c '. cdp_postgres_sm.env'
+          echo "***Create links and directories for OGG deployment***"
+          # mkdir -p /${pMountpointName}/OGG
+          chown -R oracle:oracle /${pMountpointName}/OGG
+          chmod -R 775 /${pMountpointName}/OGG
+          mkdir -p /${pMountpointName}/data
+          chown -R oracle:oracle /${pMountpointName}/data
+          chmod -R 775 /${pMountpointName}/data
+          echo "***Create soft Links to NFS share from OGG Home***"
+          mkdir -p /${pMountpointName}/OGG/opgg_ma/Deploy
+          chown -R oracle:oracle /${pMountpointName}/OGG/opgg_ma/Deploy
+          chmod -R 775 /${pMountpointName}/OGG/opgg_ma/Deploy
+          chown -R oracle:oracle /u01/app/product/oracle/opgg_ma/
+          chmod -R 775 /u01/app/product/oracle/opgg_ma/
+          su - oracle -c 'cd /u01/app/product/oracle/opgg_ma;ln -s /${pMountpointName}/OGG/opgg_ma/Deploy Deploy'
+          echo "***Directories to  place deployment files in NFS Share***"
+          mkdir -p /u01/app/product/oracle/opgg_ma/Deploy/ServiceManager
+          chown -R oracle:oracle /u01/app/product/oracle/opgg_ma/Deploy/ServiceManager
+          chmod -R 775 /u01/app/product/oracle/opgg_ma/Deploy/ServiceManager
+          mkdir -p /u01/app/product/oracle/opgg_ma/Deploy/CDP
+          chown -R oracle:oracle /u01/app/product/oracle/opgg_ma/Deploy/CDP
+          chmod -R 775 /u01/app/product/oracle/opgg_ma/Deploy/CDP
+          echo "***To store performance metrics***"
+          mkdir -p /u01/data/OGG
+          chown -R oracle:oracle /u01/data/OGG
+          chmod -R 775 /u01/data/OGG
+          mkdir -p /u01/app/product/oracle/opgg_ma/Deploy/CDP
+          chown -R oracle:oracle /u01/app/product/oracle/opgg_ma/Deploy/CDP
+          chmod -R 775 /u01/app/product/oracle/opgg_ma/Deploy/CDP
+          mkdir -p /${pMountpointName}/data/OGG/CDP
+          chown -R oracle:oracle /${pMountpointName}/data/OGG/CDP
+          chmod -R 775 /${pMountpointName}/data/OGG/CDP
+          mkdir -p /u01/app/product/oracle/opgg_ma/Deploy/CDP
+          chown -R oracle:oracle /u01/app/product/oracle/opgg_ma/Deploy/CDP
+          chmod -R 775 /u01/app/product/oracle/opgg_ma/Deploy/CDP
+          su - oracle -c 'cd /u01/data/OGG;ln -s /${pMountpointName}/data/OGG/CDP CDP'
+          mkdir -p /u01/data/OGG/CDP/bdb
+          chown -R oracle:oracle /u01/data/OGG/CDP/bdb
+          chmod -R 775 /u01/data/OGG/CDP/bdb
+          echo "***Create directories for OGG Deployment for Source Oracle Database***"
+          mkdir -p /${pMountpointName}/OGG/ogg_ma/Deploy/CCNB
+          chown -R oracle:oracle /${pMountpointName}/OGG/ogg_ma/Deploy/CCNB
+          chmod -R 775 /${pMountpointName}/OGG/ogg_ma/Deploy/CCNB
+          mkdir -p /${pMountpointName}/OGG/ogg_ma/Deploy/ServiceManager
+          chown -R oracle:oracle /${pMountpointName}/OGG/ogg_ma/Deploy/ServiceManager
+          chmod -R 775 /${pMountpointName}/OGG/ogg_ma/Deploy/ServiceManager
+          echo "***To store performance metrics***"
+          mkdir -p /${pMountpointName}/data/OGG/CCNB
+          chown -R oracle:oracle /${pMountpointName}/data/OGG/CCNB
+          chmod -R 775 /${pMountpointName}/data/OGG/CCNB
+          su - oracle -c 'cd /u01/app/product/oracle/ogg_ma;ln -s /${pMountpointName}/data/OGG/CCNB CCNB'
+          mkdir -p /u01/data/OGG/CCNB/bdb
+          chown -R oracle:oracle /u01/data/OGG/CCNB/bdb
+          chmod -R 775 /u01/data/OGG/CCNB/bdb
+          echo "***TNS Configuration***"
+          mkdir -p /usr/lib/oracle/12.1/client64/network/admin
+          chown -R oracle:oracle /usr/lib/oracle
+          chmod -R 775 /usr/lib/oracle
+          su - oracle -c 'echo "NAMES.DIRECTORY_PATH= (TNSNAMES, EZCONNECT)" > sqlnet.ora'
+          aws s3 cp s3://${pS3artifact}/tnsnames.ora /usr/lib/oracle/12.1/client64/network/admin
+          chown -R oracle:oracle /usr/lib/oracle/12.1/client64/network/admin/tnsnames.ora
+          chmod -R 775 /usr/lib/oracle/12.1/client64/network/admin/tnsnames.ora
+          su - oracle -c 'cd /usr/lib/oracle/12.1/client64/network/admin;echo "NAMES.DIRECTORY_PATH= (TNSNAMES, EZCONNECT)" > sqlnet.ora'
+          echo "***Deploy OGG for PostgreSQL - Target***"
+          aws s3 cp s3://${pS3artifact}/oggca_postgres_cdp.rsp /home/oracle/
+          sed -i "s/abc/$((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/oggtargetusername --output text --query SecretString) | jq '.password'  | sed 's/"//g')/g" /home/oracle/oggca_postgres_cdp.rsp
+          host_ip1=$(hostname -I | awk '{print $1}')
+          sed -i "s/ip/$host_ip1/g" /home/oracle/oggca_postgres_cdp.rsp
+          chown -R oracle:oracle /home/oracle/oggca_postgres_cdp.rsp
+          chmod -R 775 /home/oracle/oggca_postgres_cdp.rsp
+          su - oracle -c '/u01/app/product/oracle/opgg_ma/21.3/bin/oggca.sh -silent -responseFile /home/oracle/oggca_postgres_cdp.rsp'
+          echo "***Place the pem and odbc files -- Postgress**"
+          aws s3 cp s3://${pS3artifact}/odbc.ini /u01/app/product/oracle/opgg_ma/Deploy/ServiceManager/etc/
+          chown -R oracle:oracle /u01/app/product/oracle/opgg_ma/Deploy/ServiceManager/etc/odbc.ini
+          chmod -R 775 /u01/app/product/oracle/opgg_ma/Deploy/ServiceManager/etc/odbc.ini
+          aws s3 cp s3://${pS3artifact}/rds-ca-2019-root.pem /u01/app/product/oracle/opgg_ma/Deploy/ServiceManager/var/lib/wallet/
+          chown -R oracle:oracle /u01/app/product/oracle/opgg_ma/Deploy/ServiceManager/var/lib/wallet/rds-ca-2019-root.pem
+          chmod -R 775 /u01/app/product/oracle/opgg_ma/Deploy/ServiceManager/var/lib/wallet/rds-ca-2019-root.pem
+          echo "***Start the service Manager --- Postgress ***"
+          su - oracle -c '. cdp_postgres_sm.env;/u01/app/product/oracle/opgg_ma/Deploy/ServiceManager/bin/stopSM.sh'
+          su - oracle -c '. cdp_postgres_sm.env;/u01/app/product/oracle/opgg_ma/Deploy/ServiceManager/bin/startSM.sh'
+          echo "***Place OGG Config files ***"
+          aws s3 cp s3://${pS3artifact}/charmapdesc.txt /u01/app/product/oracle/opgg_ma/Deploy/CDP/etc/conf/ogg/
+          chown -R oracle:oracle /u01/app/product/oracle/opgg_ma/Deploy/CDP/etc/conf/ogg/charmapdesc.txt
+          chmod -R 775 /u01/app/product/oracle/opgg_ma/Deploy/CDP/etc/conf/ogg/charmapdesc.txt
+          aws s3 cp s3://${pS3artifact}/map_cdp_list_1.inc /u01/app/product/oracle/opgg_ma/Deploy/CDP/etc/conf/ogg/
+          chown -R oracle:oracle /u01/app/product/oracle/opgg_ma/Deploy/CDP/etc/conf/ogg/map_cdp_list_1.inc
+          chmod -R 775 /u01/app/product/oracle/opgg_ma/Deploy/CDP/etc/conf/ogg/map_cdp_list_1.inc
+          aws s3 cp s3://${pS3artifact}/${pReplicatName}.prm /u01/app/product/oracle/opgg_ma/Deploy/CDP/etc/conf/ogg/
+          chown -R oracle:oracle /u01/app/product/oracle/opgg_ma/Deploy/CDP/etc/conf/ogg/${pReplicatName}.prm
+          chmod -R 775 /u01/app/product/oracle/opgg_ma/Deploy/CDP/etc/conf/ogg/${pReplicatName}.prm
+          host_ip1=$(hostname -I | awk '{print $1}')
+          echo "/u01/app/product/oracle/opgg_ma/21.3/bin/adminclient << EOF" > /home/oracle/conn_gg_postgres.sh
+          echo "connect http://$host_ip1:9001 as $((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/oggtargetusername --output text --query SecretString) | jq '.username'  | sed 's/"//g') password $((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/oggtargetusername --output text --query SecretString) | jq '.password'  | sed 's/"//g')" >> /home/oracle/conn_gg_postgres.sh
+          echo "stop deployment cdp" >> /home/oracle/conn_gg_postgres.sh
+          echo "sh sleep 120" >> /home/oracle/conn_gg_postgres.sh
+          echo "start deployment cdp" >> /home/oracle/conn_gg_postgres.sh
+          echo "sh sleep 120" >> /home/oracle/conn_gg_postgres.sh
+          echo "ALTER CREDENTIALSTORE ADD USER $((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/targetdbname --output text --query SecretString) | jq '.username'  | sed 's/"//g')@${pTargetDSN} PASSWORD $((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/targetdbname --output text --query SecretString) | jq '.password'  | sed 's/"//g')" ALIAS ${pTargetDSN} >> /home/oracle/conn_gg_postgres.sh
+          echo "dblogin useridalias ${pTargetDSN}" >> /home/oracle/conn_gg_postgres.sh
+          echo "add checkpointtable cdpstg_ccb.ggcheck" >> /home/oracle/conn_gg_postgres.sh
+          echo "add replicat ${pReplicatName}, exttrail /u01/app/product/oracle/ogg_ma/Deploy/CCNB/var/lib/data/${pExtractTrailPrefix}, checkpointtable cdpstg_ccb.ggcheck" >> /home/oracle/conn_gg_postgres.sh
+          echo "EOF" >> /home/oracle/conn_gg_postgres.sh
+          chown -R oracle:oracle /home/oracle/conn_gg_postgres.sh
+          chmod -R 775 /home/oracle/conn_gg_postgres.sh
+          # su - oracle -c 'sh conn_gg_postgres.sh'
+          echo "***Deploy OGG for CCNB Oracle Database***"
+          aws s3 cp s3://${pS3artifact}/oggca_oracle_ccnb.rsp /home/oracle/
+          sed -i "s/abc/$((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/oggsourceusername --output text --query SecretString) | jq '.password'  | sed 's/"//g')/g" /home/oracle/oggca_oracle_ccnb.rsp
+          host_ip2=$(hostname -I | awk '{print $1}')
+          sed -i "s/ip/$host_ip2/g" /home/oracle/oggca_oracle_ccnb.rsp
+          chown -R oracle:oracle /home/oracle/oggca_oracle_ccnb.rsp
+          chmod -R 775 /home/oracle/oggca_oracle_ccnb.rsp
+          su - oracle -c '/u01/app/product/oracle/ogg_ma/21.3/bin/oggca.sh -silent -responseFile /home/oracle/oggca_oracle_ccnb.rsp'
+          aws s3 cp s3://${pS3artifact}/${pExtractName}.prm /u01/app/product/oracle/ogg_ma/Deploy/CCNB/etc/conf/ogg/
+          chown -R oracle:oracle /u01/app/product/oracle/ogg_ma/Deploy/CCNB/etc/conf/ogg/${pExtractName}.prm
+          chmod -R 775 /u01/app/product/oracle/ogg_ma/Deploy/CCNB/etc/conf/ogg/${pExtractName}.prm           
+          echo "***Start the service Manager --- Oracle ***"
+          su - oracle -c '. ccnb_oracle_sm.env;/u01/app/product/oracle/ogg_ma/Deploy/ServiceManager/bin/stopSM.sh'
+          su - oracle -c '. ccnb_oracle_sm.env;/u01/app/product/oracle/ogg_ma/Deploy/ServiceManager/bin/startSM.sh'
+          echo "***Oracle precheck***"
+          aws s3 cp s3://${pS3artifact}/oracleprecheck.sh /home/oracle/
+          sed -i "s/abc/$((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/sourcedbusername --output text --query SecretString) | jq '.password'  | sed 's/"//g')/g" /home/oracle/oracleprecheck.sh
+          chown -R oracle:oracle /home/oracle/oracleprecheck.sh
+          chmod -R 775 /home/oracle/oracleprecheck.sh
+          su - oracle -c '. ccnb_oracle_sm.env;/home/oracle/oracleprecheck.sh'
+          echo "***Create Credentialstore and add extract Process***"
+          echo "/u01/app/product/oracle/ogg_ma/21.3/bin/adminclient << EOF" > /home/oracle/conn_gg_oracle.sh
+          host_ip2=$(hostname -I | awk '{print $1}')
+          echo "connect http://$host_ip2:10001 as $((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/oggsourceusername --output text --query SecretString) | jq '.username'  | sed 's/"//g') password $((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/oggsourceusername --output text --query SecretString) | jq '.password'  | sed 's/"//g')" >> /home/oracle/conn_gg_oracle.sh
+          echo "ALTER CREDENTIALSTORE ADD USER $((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/sourcedbusername --output text --query SecretString) | jq '.username'  | sed 's/"//g')@${pSourceTNSAlias} PASSWORD $((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/sourcedbusername --output text --query SecretString) | jq '.password'  | sed 's/"//g') ALIAS ccbpccapp2" >> /home/oracle/conn_gg_oracle.sh
+          echo "dblogin useridalias $((aws secretsmanager get-secret-value --secret-id /gg/${pEnv}/sourcedbusername --output text --query SecretString) | jq '.username'  | sed 's/"//g')" >> /home/oracle/conn_gg_oracle.sh
+          echo "add extract ${pExtractName}, integrated tranlog, begin now" >> /home/oracle/conn_gg_oracle.sh
+          echo "add exttrail ${pExtractTrailPrefix}, extract ${pExtractName}, megabytes 500" >> /home/oracle/conn_gg_oracle.sh
+          echo "register extract ${pExtractName}, database" >> /home/oracle/conn_gg_oracle.sh
+          echo "start extract ${pExtractName}" >> /home/oracle/conn_gg_oracle.sh
+          echo "EOF" >> /home/oracle/conn_gg_oracle.sh
+          chown -R oracle:oracle /home/oracle/conn_gg_oracle.sh
+          chmod -R 775 /home/oracle/conn_gg_oracle.sh
+          # su - oracle -c 'sh conn_gg_oracle.sh'
+      Tags:
+        - Key: AppID
+          Value: !Ref pAppID
+        - Key: AppName
+          Value: !Ref pAppName
+        - Key: Environment
+          Value: !Ref pEnv
+        - Key: Notify
+          Value: !Ref pNotify
+        - Key: Order
+          Value: !Ref pOrder
+        - Key: Org
+          Value: !Ref pOrg
+        - Key: Owner
+          Value: !Ref pOwner
+        - Key: ProjectName
+          Value: !Ref pProjectName
+        - Key: Role
+          Value: !Ref pRole
+        - Key: "Name"
+          Value: !Sub ${AWS::StackName}
+  MountTargetSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref pVPCID
+      GroupDescription: Security group for mount target
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          SourceSecurityGroupId: !Ref rSecurityGroup
+          FromPort: 2049
+          ToPort: 2049
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose
+      Encrypted: true
+      FileSystemTags:
+        - Key: Name
+          Value: !Ref pVolumeName
+  MountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref pPrivateSubnet1ID
+      SecurityGroups: 
+        - !Ref MountTargetSecurityGroup
+  MountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref pPrivateSubnet2ID
+      SecurityGroups: 
+        - !Ref MountTargetSecurityGroup
+  MountTarget3:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref pPrivateSubnet3ID
+      SecurityGroups: 
+        - !Ref MountTargetSecurityGroup}
